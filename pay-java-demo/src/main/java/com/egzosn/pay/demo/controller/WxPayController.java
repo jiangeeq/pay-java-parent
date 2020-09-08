@@ -2,27 +2,16 @@
 package com.egzosn.pay.demo.controller;
 
 
-import com.egzosn.pay.common.api.Callback;
-import com.egzosn.pay.common.api.PayService;
 import com.egzosn.pay.common.bean.*;
 import com.egzosn.pay.common.http.HttpConfigStorage;
-import com.egzosn.pay.common.http.UriVariables;
-import com.egzosn.pay.demo.entity.PayType;
 import com.egzosn.pay.demo.request.QueryOrder;
-import com.egzosn.pay.demo.service.PayResponse;
-import com.egzosn.pay.demo.service.handler.AliPayMessageHandler;
-import com.egzosn.pay.demo.service.handler.WxPayMessageHandler;
 import com.egzosn.pay.wx.api.WxPayConfigStorage;
 import com.egzosn.pay.wx.api.WxPayService;
-import com.egzosn.pay.wx.bean.WxBank;
-import com.egzosn.pay.wx.bean.WxTransactionType;
-import com.egzosn.pay.wx.bean.WxTransferType;
-import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
+import com.egzosn.pay.wx.bean.*;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.annotation.PostConstruct;
-import javax.annotation.Resource;
 import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletRequest;
 import java.io.ByteArrayOutputStream;
@@ -36,14 +25,14 @@ import java.util.UUID;
  * 发起支付入口
  *
  * @author: egan
- * @email egzosn@gmail.com
- * @date 2016/11/18 0:25
+ * email egzosn@gmail.com
+ * date 2016/11/18 0:25
  */
 @RestController
 @RequestMapping("wx")
 public class WxPayController {
 
-    private PayService service = null;
+    private WxPayService service = null;
 
 
 
@@ -79,7 +68,8 @@ public class WxPayController {
 //            httpConfigStorage.setKeystore(WxPayController.class.getResourceAsStream("/证书文件"));
             httpConfigStorage.setKeystore(KEYSTORE);
             httpConfigStorage.setStorePassword(STORE_PASSWORD);
-            httpConfigStorage.setPath(true);
+            //设置ssl证书对应的存储方式，这里默认为文件地址
+            httpConfigStorage.setCertStoreType(CertStoreType.PATH);
         }
 
 
@@ -101,6 +91,7 @@ public class WxPayController {
      * 跳到支付页面
      * 针对实时支付
      *
+     * @param request       请求
      * @param price       金额
      * @return 跳到支付页面
      */
@@ -114,8 +105,9 @@ public class WxPayController {
         //设置网页名称
         order.setWapName("在线充值");
 
-        Map orderInfo = service.orderInfo(order);
-        return service.buildRequest(orderInfo, MethodType.POST);
+//        Map orderInfo = service.orderInfo(order);
+//        return service.buildRequest(orderInfo, MethodType.POST);
+        return service.toPay(order);
     }
 
     /**
@@ -152,7 +144,7 @@ public class WxPayController {
         PayOrder order = new PayOrder("订单title", "摘要", new BigDecimal(0.01), UUID.randomUUID().toString().replace("-", ""));
         //App支付
         order.setTransactionType(WxTransactionType.APP);
-        data.put("orderInfo", service.orderInfo(order));
+        data.put("orderInfo", service.app(order));
         return data;
     }
 
@@ -161,6 +153,7 @@ public class WxPayController {
      * 二维码支付
      * @param price       金额
      * @return 二维码图像
+     * @throws IOException IOException
      */
     @RequestMapping(value = "toQrPay.jpg", produces = "image/jpeg;charset=UTF-8")
     public byte[] toWxQrPay( BigDecimal price) throws IOException {
@@ -170,7 +163,18 @@ public class WxPayController {
         return baos.toByteArray();
     }
 
-
+    /**
+     * 获取二维码地址
+     * 二维码支付
+     * @param price       金额
+     * @return 二维码图像
+     * @throws IOException IOException
+     */
+    @RequestMapping(value = "getQrPay.json")
+    public String getQrPay(BigDecimal price) throws IOException {
+        //获取对应的支付账户操作工具（可根据账户id）
+        return service.getQrPay( new PayOrder("订单title", "摘要", null == price ? new BigDecimal(0.01) : price, System.currentTimeMillis()+"", WxTransactionType.NATIVE));
+    }
     /**
      * 刷卡付,pos主动扫码付款(条码付)
      * @param authCode        授权码，条码等
@@ -178,10 +182,10 @@ public class WxPayController {
      * @return 支付结果
      */
     @RequestMapping(value = "microPay")
-    public Map<String, Object> microPay( BigDecimal price, String authCode) throws IOException {
+    public Map<String, Object> microPay( BigDecimal price, String authCode) {
         //获取对应的支付账户操作工具（可根据账户id）
         //条码付
-        PayOrder order = new PayOrder("huodull order", "huodull order", null == price ? new BigDecimal(0.01) : price, UUID.randomUUID().toString().replace("-", ""), WxTransactionType.MICROPAY);
+        PayOrder order = new PayOrder("egan order", "egan order", null == price ? new BigDecimal(0.01) : price, UUID.randomUUID().toString().replace("-", ""), WxTransactionType.MICROPAY);
         //设置授权码，条码等
         order.setAuthCode(authCode);
         //支付结果
@@ -199,13 +203,42 @@ public class WxPayController {
     }
 
     /**
+     * 刷脸付
+     * @param price       金额
+     * @param authCode        人脸凭证
+     * @param openid        用户在商户 appid下的唯一标识
+     * @return 支付结果
+     */
+    @RequestMapping(value = "facePay")
+    public Map<String, Object> facePay(BigDecimal price, String authCode, String openid)  {
+        //获取对应的支付账户操作工具（可根据账户id）
+        PayOrder order = new PayOrder("egan order", "egan order", null == price ? new BigDecimal(0.01) : price, UUID.randomUUID().toString().replace("-", ""), WxTransactionType.FACEPAY);
+        //设置人脸凭证
+        order.setAuthCode(authCode);
+        //  用户在商户 appid下的唯一标识
+        order.setOpenid(openid);
+        //支付结果
+        Map<String, Object> params = service.microPay(order);
+        //校验
+        if (service.verify(params)) {
+            //支付校验通过后的处理
+            //......业务逻辑处理块........
+
+
+        }
+        //这里开发者自行处理
+        return params;
+    }
+
+    /**
      * 支付回调地址 方式一
      *
      * 方式二，{@link #payBack(HttpServletRequest)} 是属于简化方式， 试用与简单的业务场景
      *
-     * @param request
+     * @param request 请求
      *
-     * @return
+     * @return 是否成功
+     * @throws IOException IOException
      * @see #payBack(HttpServletRequest)
      */
     @Deprecated
@@ -230,14 +263,14 @@ public class WxPayController {
     /**
      * 支付回调地址
      *
-     * @param request
+     * @param request 请求
      *
-     * @return
+     * @return 是否成功
      *
      * 业务处理在对应的PayMessageHandler里面处理，在哪里设置PayMessageHandler，详情查看{@link com.egzosn.pay.common.api.PayService#setPayMessageHandler(com.egzosn.pay.common.api.PayMessageHandler)}
      *
      * 如果未设置 {@link com.egzosn.pay.common.api.PayMessageHandler} 那么会使用默认的 {@link com.egzosn.pay.common.api.DefaultPayMessageHandler}
-     *
+     * @throws IOException IOException
      */
     @RequestMapping(value = "payBack.json")
     public String payBack(HttpServletRequest request) throws IOException {
@@ -290,8 +323,8 @@ public class WxPayController {
      * @return 返回支付方查询退款后的结果
      */
     @RequestMapping("refundquery")
-    public Map<String, Object> refundquery(QueryOrder order) {
-        return service.refundquery(order.getTradeNo(), order.getOutTradeNo());
+    public Map<String, Object> refundquery(RefundOrder order) {
+        return service.refundquery(order);
     }
 
     /**
@@ -305,18 +338,6 @@ public class WxPayController {
         return service.downloadbill(order.getBillDate(), order.getBillType());
     }
 
-
-    /**
-     * 通用查询接口，根据 WxTransactionType 类型进行实现,此接口不包括退款
-     *
-     * @param order 订单的请求体
-     * @return 返回支付方对应接口的结果
-     */
-    @RequestMapping("secondaryInterface")
-    public Map<String, Object> secondaryInterface(QueryOrder order) {
-        TransactionType type = WxTransactionType.valueOf(order.getTransactionType());
-        return service.secondaryInterface(order.getTradeNoOrBillDate(), order.getOutTradeNoBillType(), type);
-    }
 
 
 
@@ -373,10 +394,10 @@ public class WxPayController {
      *                       {@link com.egzosn.pay.wx.bean.WxTransferType#QUERY_BANK}
      *                       {@link com.egzosn.pay.wx.bean.WxTransferType#GETTRANSFERINFO}
      *
-     * <br/>
+     * <p>
      *  <a href="https://pay.weixin.qq.com/wiki/doc/api/tools/mch_pay.php?chapter=14_3">企业付款到零钱</a>
      *  <a href="https://pay.weixin.qq.com/wiki/doc/api/tools/mch_pay.php?chapter=24_3">商户企业付款到银行卡</a>
-     * <br/>
+     * </p>
      * @return 对应的转账订单
      */
     @RequestMapping("transferQuery")
@@ -384,4 +405,51 @@ public class WxPayController {
        //默认查询银行卡的记录 com.egzosn.pay.wx.bean.WxTransferType#QUERY_BANK
         return service.transferQuery(outNo, wxTransferType);
     }
+
+    /**
+     * 微信发红包
+     * @param redpackOrder 红包订单
+     * @return 结果
+     */
+    public Map<String, Object> sendredpack(RedpackOrder redpackOrder) {
+        redpackOrder.setTransferType(WxSendredpackType.SENDREDPACK);
+        return service.sendredpack(redpackOrder);
+    }
+
+    /**
+     * 发放裂变红包
+     * @param redpackOrder 红包订单
+     * @return 结果
+     */
+    public Map<String, Object> sendgroupredpack(RedpackOrder redpackOrder) {
+        redpackOrder.setTransferType(WxSendredpackType.SENDGROUPREDPACK);
+        return service.sendredpack(redpackOrder);
+    }
+
+
+    /**
+     * 小程序发红包
+     * @param redpackOrder 红包订单
+     * @return 结果
+     */
+    public Map<String, Object> sendminiprogramhb(RedpackOrder redpackOrder) {
+        redpackOrder.setTransferType(WxSendredpackType.SENDMINIPROGRAMHB);
+        return service.sendredpack(redpackOrder);
+    }
+
+
+    /**
+     * 查询红包记录
+     * 用于商户对已发放的红包进行查询红包的具体信息，可支持普通红包和裂变包
+     * 查询红包记录API只支持查询30天内的红包订单，30天之前的红包订单请登录商户平台查询。
+     *
+     * @param mchBillno 商户发放红包的商户订单号
+     * @return 返回查询结果
+     */
+    public Map<String, Object> gethbinfo(String mchBillno) {
+        return service.gethbinfo(mchBillno);
+    }
+
+
+
 }

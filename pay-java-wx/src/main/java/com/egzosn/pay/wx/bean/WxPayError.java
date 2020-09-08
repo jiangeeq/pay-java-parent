@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original huodull or egan.
+ * Copyright 2002-2017 the original egan or egan.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import com.egzosn.pay.common.bean.result.PayError;
 
 /**
  * 微信支付异常
- * @author: egan
+ * @author egan
  * <pre>
  *
  * email egzosn@gmail.com
